@@ -10,7 +10,7 @@ import java.util.Optional;
  * 사용자 Repository
  */
 @Repository
-public interface UserRepository extends JpaRepository<User, Long> {
+public interface UserRepository extends JpaRepository<User, Integer> {
 
     /**
      * 로그인 ID로 사용자 찾기
@@ -21,9 +21,4 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * 로그인 ID 존재 여부 확인
      */
     boolean existsByLoginId(String loginId);
-
-    /**
-     * 탈퇴하지 않은 사용자 찾기
-     */
-    Optional<User> findByLoginIdAndWithdrawalAtIsNull(String loginId);
 }

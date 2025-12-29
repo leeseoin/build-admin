@@ -3,9 +3,13 @@
     "allow": [],
     "deny": [
       "Bash(curl:*)",
-      "Read(./.env.*)",
       "Bash(apt install:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(docker exec:*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(./.env)",
+      "Edit(./.env.*)"
     ]
   }
 }

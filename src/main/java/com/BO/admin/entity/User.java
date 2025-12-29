@@ -1,13 +1,24 @@
 package com.BO.admin.entity;
 
-import jakarta.persistence.*;
-import lombok.*;
-
 import java.time.LocalDateTime;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 /**
- * 일반 사용자 엔티티
- * 테이블: tb_user
+ * 사용자 엔티티
+ * 테이블: TB_USER
  */
 @Entity
 @Table(name = "tb_user")
@@ -20,86 +31,50 @@ public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "userId")
-    private Long userId;
+    @Column(name = "user_seq")
+    private Integer userSeq;
 
-    @Column(name = "loginId", nullable = false)
+    @Column(name = "login_id", nullable = false, unique = true, length = 50)
     private String loginId;
 
-    @Column(name = "userName", nullable = false)
+    @Column(name = "password", nullable = false, length = 255)
+    private String password;
+
+    @Column(name = "user_name", nullable = false, length = 100)
     private String userName;
 
     @Builder.Default
-    @Column(name = "socialLoginYn", nullable = false)
-    private Boolean socialLoginYn = false;
-
-    @Column(name = "lastLoginAt")
-    private LocalDateTime lastLoginAt;
+    @Column(name = "language", length = 10)
+    private String language = "ko";
 
     @Builder.Default
-    @Column(name = "subscribeInService", nullable = false)
-    private Boolean subscribeInService = false;
+    @Column(name = "subscribe_in_service", length = 1)
+    private String subscribeInService = "N";
 
-    @Builder.Default
-    @Enumerated(EnumType.STRING)
-    @Column(name = "registeredPath", nullable = false)
-    private RegisteredPath registeredPath = RegisteredPath.EMAIL;
+    @Column(name = "access_token", length = 500)
+    private String accessToken;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "withdrawalType")
-    private WithdrawalType withdrawalType;
+    @Column(name = "register_date", nullable = false, updatable = false)
+    private LocalDateTime registerDate;
 
-    @Column(name = "password", nullable = false)
-    private String password;
-
-    @Column(name = "registeredAt", nullable = false, updatable = false)
-    private LocalDateTime registeredAt;
-
-    @Column(name = "updatedBy")
-    private Long updatedBy;
-
-    @Column(name = "updatedAt", nullable = false)
-    private LocalDateTime updatedAt;
-
-    @Column(name = "deactivatedAt")
-    private LocalDateTime deactivatedAt;
-
-    @Column(name = "withdrawalAt")
-    private LocalDateTime withdrawalAt;
-
-    @Builder.Default
-    @Column(name = "language", length = 10, nullable = false)
-    private String language = "ENG";
+    @Column(name = "modify_date", nullable = false)
+    private LocalDateTime modifyDate;
 
     @PrePersist
     protected void onCreate() {
-        registeredAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
+        registerDate = LocalDateTime.now();
+        modifyDate = LocalDateTime.now();
     }
 
     @PreUpdate
     protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
+        modifyDate = LocalDateTime.now();
     }
 
     /**
-     * 소셜 로그인 사용자 여부 확인
+     * 구독 여부 확인
      */
-    public boolean isSocialUser() {
-        return Boolean.TRUE.equals(socialLoginYn);
-    }
-
-    /**
-     * 탈퇴한 사용자 여부 확인
-     */
-    public boolean isWithdrawn() {
-        return withdrawalAt != null;
-    }
-
-    /**
-     * 비활성화된 사용자 여부 확인
-     */
-    public boolean isDeactivated() {
-        return deactivatedAt != null;
+    public boolean isSubscribed() {
+        return "Y".equals(subscribeInService);
     }
 }

@@ -61,7 +61,11 @@ public class SecurityConfig {
                                 "/api/public/**",        // 공개 API
                                 "/error",                // 에러 페이지
                                 "/favicon.ico",          // 파비콘
-                                "/actuator/health"       // 헬스 체크
+                                "/actuator/health",      // 헬스 체크
+                                "/swagger-ui/**",        // Swagger UI
+                                "/swagger-ui.html",      // Swagger UI HTML
+                                "/v3/api-docs/**",       // OpenAPI docs
+                                "/swagger-resources/**"  // Swagger resources
                         ).permitAll()
 
                         // ADMIN 권한 필요

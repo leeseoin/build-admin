@@ -2,8 +2,8 @@
 
 > Spring Boot 회원가입/로그인 시스템 개발 프로젝트
 
-**마지막 업데이트**: 2025-11-26
-**현재 진행 상황**: Phase 3.5 완료 - 테스트 코드 작성 및 검증 완료
+**마지막 업데이트**: 2025-12-29
+**현재 진행 상황**: Phase 5-6 진행 중 - 프로젝트 구조 리팩토링 및 인증 API 구현
 
 ---
 
@@ -214,6 +214,155 @@ Phase 4로 넘어가기 전, 지금까지 작업한 Phase 1-3의 기능들을 �
    - JwtTokenProviderTest: 23개 통과
    - RepositoryIntegrationTest: 19개 통과
    - SecurityConfigIntegrationTest: 20개 통과
+
+### 2025-12-29
+
+#### 🔄 프로젝트 구조 리팩토링
+
+기존 복잡한 구조를 단순화하고, Refresh Token 저장소를 DB에서 Redis로 변경했습니다.
+
+1. **Entity 간소화**
+   - ❌ `Admin.java` 삭제 (관리자 기능 제거)
+   - ❌ `AdminLevel.java` 삭제
+   - ❌ `RefreshToken.java` 삭제 (Redis로 대체)
+   - ❌ `RegisteredPath.java` 삭제
+   - ❌ `UserType.java` 삭제
+   - ❌ `WithdrawalType.java` 삭제
+
+2. **User Entity 재설계** (`src/main/java/com/BO/admin/entity/User.java`)
+   - 테이블명: `TB_USER` (새로운 구조)
+   - 필드 간소화:
+     - `userSeq` (INT, PK) - 사용자 고유 번호
+     - `loginId` (VARCHAR) - 로그인 ID
+     - `password` (VARCHAR) - 암호화된 비밀번호
+     - `userName` (VARCHAR) - 사용자 이름
+     - `language` (VARCHAR) - 언어 설정 (기본값: ko)
+     - `subscribeInService` (VARCHAR) - 구독 여부 (Y/N)
+     - `accessToken` (VARCHAR) - 현재 활성 Access Token
+     - `registerDate` (DATETIME) - 가입일시
+     - `modifyDate` (DATETIME) - 수정일시
+
+3. **Repository 간소화**
+   - ❌ `AdminRepository.java` 삭제
+   - ❌ `RefreshTokenRepository.java` 삭제 (Redis로 대체)
+   - ✅ `UserRepository.java` 수정
+
+4. **새로운 SQL 파일 생성** (`sql/TB_USER.sql`)
+   ```sql
+   CREATE TABLE TB_USER (
+       user_seq    INT AUTO_INCREMENT PRIMARY KEY,
+       login_id    VARCHAR(50) NOT NULL UNIQUE,
+       password    VARCHAR(255) NOT NULL,
+       user_name   VARCHAR(100) NOT NULL,
+       language    VARCHAR(10) DEFAULT 'ko',
+       subscribe_in_service VARCHAR(1) DEFAULT 'N',
+       access_token VARCHAR(500),
+       register_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+       modify_date DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+   );
+   ```
+
+#### ✅ Redis 기반 Refresh Token 관리
+
+DB 대신 Redis를 사용하여 Refresh Token을 관리합니다.
+
+1. **RedisConfig.java 생성** (`src/main/java/com/BO/admin/config/RedisConfig.java`)
+   - Lettuce 클라이언트 사용
+   - `RedisTemplate<String, String>` 설정
+   - StringRedisSerializer로 Key/Value 직렬화
+
+2. **RefreshTokenService.java 생성** (`src/main/java/com/BO/admin/service/RefreshTokenService.java`)
+   - `saveRefreshToken()` - Redis에 Refresh Token 저장
+   - `getRefreshToken()` - Refresh Token 조회
+   - `deleteRefreshToken()` - Refresh Token 삭제 (로그아웃)
+   - `validateRefreshToken()` - 토큰 유효성 확인
+   - Key 패턴: `refresh:{loginId}`
+   - TTL: 7일 (`jwt.refresh-token-validity` 기반)
+
+3. **build.gradle에 Redis 의존성 추가**
+   ```gradle
+   implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
+   ```
+
+#### ✅ Phase 5: Service 계층 구현
+
+1. **AuthService.java 생성** (`src/main/java/com/BO/admin/service/AuthService.java`)
+   - `signup()` - 회원가입 (토큰 발급 없음, 로그인 필요)
+     - 중복 체크, 비밀번호 암호화, User 저장
+   - `login()` - 로그인 + JWT 발급
+     - 사용자 조회, 비밀번호 확인
+     - Access Token 생성 → User 테이블에 저장
+     - Refresh Token 생성 → Redis에 저장
+   - `logout()` - 로그아웃
+     - Redis에서 Refresh Token 삭제
+
+#### ✅ Phase 6: Controller 계층 구현 (일부)
+
+1. **AuthController.java 생성** (`src/main/java/com/BO/admin/controller/AuthController.java`)
+   - `POST /api/auth/signup` - 회원가입
+     - 요청: `{ loginId, password, userName, language, subscribeInService }`
+     - 응답: `{ message, loginId, userName }`
+   - `POST /api/auth/login` - 로그인
+     - 요청: `{ loginId, password }`
+     - 응답: `TokenResponse` (accessToken, refreshToken, tokenType, expiresIn, userType)
+   - `POST /api/auth/logout` - 로그아웃
+     - 헤더: `Authorization: Bearer {token}`
+     - 응답: `{ message }`
+   - `GET /api/auth/health` - 헬스 체크
+
+2. **DTO 추가**
+   - `LoginRequest.java` - 로그인 요청 (loginId, password)
+   - `SignupRequest.java` - 회원가입 요청 (loginId, password, userName, language, subscribeInService)
+
+#### ✅ Swagger API 문서화
+
+1. **SwaggerConfig.java 생성** (`src/main/java/com/BO/admin/config/SwaggerConfig.java`)
+   - OpenAPI 3.0 설정
+   - JWT Bearer 인증 스키마 설정
+   - API 정보: Admin API v1.0
+
+2. **SecurityConfig.java 수정**
+   - Swagger UI 경로 인증 제외 추가:
+     - `/swagger-ui/**`
+     - `/swagger-ui.html`
+     - `/v3/api-docs/**`
+     - `/swagger-resources/**`
+
+3. **build.gradle에 Swagger 의존성 추가**
+   ```gradle
+   implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'
+   ```
+
+4. **접속 URL**
+   - Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+   - OpenAPI JSON: `http://localhost:8080/v3/api-docs`
+
+#### 📁 현재 프로젝트 구조 (2025-12-29 기준)
+
+```
+src/main/java/com/BO/admin/
+├── AdminApplication.java
+├── config/
+│   ├── RedisConfig.java          # ✅ NEW - Redis 설정
+│   ├── SecurityConfig.java       # ✅ 수정 - Swagger 경로 추가
+│   └── SwaggerConfig.java        # ✅ NEW - Swagger 설정
+├── controller/
+│   └── AuthController.java       # ✅ NEW - 인증 API
+├── dto/auth/
+│   ├── LoginRequest.java         # ✅ NEW - 로그인 요청
+│   ├── SignupRequest.java        # ✅ NEW - 회원가입 요청
+│   └── TokenResponse.java        # 기존
+├── entity/
+│   └── User.java                 # ✅ 수정 - 간소화
+├── repository/
+│   └── UserRepository.java       # ✅ 수정
+├── security/jwt/
+│   ├── JwtAuthenticationFilter.java
+│   └── JwtTokenProvider.java
+└── service/
+    ├── AuthService.java          # ✅ NEW - 인증 서비스
+    └── RefreshTokenService.java  # ✅ NEW - Redis 토큰 관리
+```
 
 ---
 
@@ -995,7 +1144,7 @@ admin/
 
 ## 🎯 현재 진행 상황 및 다음 할 일
 
-### ✅ 완료된 작업 (2025-11-26 기준)
+### ✅ 완료된 작업 (2025-12-29 기준)
 - ✅ Phase 0: Claude Code Skills 생성 (2025-11-24)
 - ✅ Phase 1: Entity 및 Repository 생성 (2025-11-24)
 - ✅ Phase 2: JWT 인증 구현 (2025-11-24)
@@ -1003,28 +1152,38 @@ admin/
   - JwtTokenProvider, JwtAuthenticationFilter 구현
 - ✅ Phase 3: Spring Security 설정 (2025-11-24)
   - JWT 필터 연동, CORS, URL별 권한 관리
-- ✅ **Phase 3.5: 테스트 코드 작성 및 검증 (2025-11-26) ⭐ NEW**
+- ✅ Phase 3.5: 테스트 코드 작성 및 검증 (2025-11-26)
   - JwtTokenProvider 단위 테스트 (23개)
   - Repository 통합 테스트 (19개)
   - SecurityConfig 통합 테스트 (20개)
   - 전체 62개 테스트 모두 통과 ✅
+- ✅ **프로젝트 구조 리팩토링 (2025-12-29) ⭐ NEW**
+  - Entity 간소화 (Admin, RefreshToken 등 삭제)
+  - User Entity 재설계 (TB_USER)
+  - Refresh Token → Redis 기반으로 변경
+- ✅ **Phase 5: Service 계층 구현 (2025-12-29) ⭐ NEW**
+  - AuthService (회원가입, 로그인, 로그아웃)
+  - RefreshTokenService (Redis 기반 토큰 관리)
+- ✅ **Phase 6: Controller 계층 구현 - 일부 (2025-12-29) ⭐ NEW**
+  - AuthController (회원가입, 로그인, 로그아웃, 헬스체크)
+  - Swagger API 문서화
 
 ### 🔄 다음 진행 작업
 
-1. **OAuth2 소셜 로그인 구현 (Phase 4) - 다음 단계**
-   ```
-   "spring-security-config 스킬을 사용해서 Google과 Kakao OAuth2 로그인을 구현해줘"
-   ```
-   → OAuth2UserInfo, CustomOAuth2UserService, OAuth2SuccessHandler 생성
-   → Google, Kakao 로그인 연동
+1. **토큰 갱신 API 구현**
+   - `POST /api/auth/refresh` - Refresh Token으로 Access Token 재발급
+   - Redis에서 Refresh Token 검증
 
-2. **Service 계층 구현 (Phase 5)**
-   - AuthService (회원가입, 로그인)
-   - UserService (사용자 관리)
-   - TokenService (토큰 갱신)
+2. **UserController 구현**
+   - `GET /api/user/me` - 내 정보 조회
+   - `PUT /api/user/me` - 내 정보 수정
 
-3. **Controller 계층 구현 (Phase 6)**
-   - AuthController, UserController, AdminController
+3. **OAuth2 소셜 로그인 구현 (Phase 4) - 선택**
+   - Google, Kakao 로그인 연동
+   - OAuth2UserInfo, CustomOAuth2UserService, OAuth2SuccessHandler 생성
+
+4. **테스트 코드 업데이트**
+   - 새로운 구조에 맞게 테스트 수정
 
 ---
 
@@ -1106,53 +1265,47 @@ SHOW TABLES;
 - [x] Claude Code Skills 3개 생성 (spring-entity-generator, jwt-token-helper, spring-security-config)
 - [x] CLAUDE.md 문서화
 
-**Phase 1: Entity 및 Repository**
-- [x] tb_refresh_token 테이블 SQL 추가
-- [x] Entity 3개 생성 (User, Admin, RefreshToken)
-- [x] Enum 4개 생성 (RegisteredPath, WithdrawalType, UserType, AdminLevel)
-- [x] Repository 3개 생성 (UserRepository, AdminRepository, RefreshTokenRepository)
+**Phase 1-3: 기본 구조 (2025-11-24)**
+- [x] Entity, Repository, JWT, Security 설정 완료
 
-**Phase 2: JWT 인증**
-- [x] build.gradle에 jjwt 0.12.3 의존성 추가
-- [x] JwtTokenProvider 생성 (토큰 생성/검증)
-- [x] JwtAuthenticationFilter 생성 (JWT 인증 필터)
-- [x] TokenResponse DTO 생성
-- [x] application.properties에 JWT 설정 추가
-- [x] jjwt 0.12.3 최신 API로 업데이트 (deprecated 메서드 제거)
+**Phase 3.5: 테스트 코드 (2025-11-26)**
+- [x] 62개 테스트 모두 통과
 
-**Phase 3: Spring Security 설정**
-- [x] SecurityConfig 생성 (spring-security-config 스킬 사용)
-- [x] SecurityFilterChain 설정 (CSRF 비활성화, 세션 STATELESS)
-- [x] CORS 정책 설정 (프론트엔드 Origin 허용)
-- [x] JWT 필터 연동 (UsernamePasswordAuthenticationFilter 이전)
-- [x] PasswordEncoder Bean 등록 (BCrypt)
-- [x] URL별 권한 설정 (permitAll, hasRole, hasAnyRole)
+**프로젝트 구조 리팩토링 (2025-12-29)**
+- [x] Entity 간소화 (Admin, RefreshToken 등 삭제)
+- [x] User Entity 재설계 → TB_USER 테이블
+- [x] Refresh Token 저장소: DB → Redis 변경
 
-**Phase 3.5: 테스트 코드 작성 및 검증 (2025-11-26)**
-- [x] JwtTokenProvider 단위 테스트 작성 (23개 테스트 케이스)
-  - [x] Access/Refresh Token 생성 및 검증
-  - [x] 토큰 정보 추출 및 만료 처리
-- [x] Repository 통합 테스트 작성 (19개 테스트 케이스)
-  - [x] UserRepository: 일반/소셜 사용자, 탈퇴 처리
-  - [x] AdminRepository: 관리자 레벨별 관리
-  - [x] RefreshTokenRepository: 토큰 생명주기 관리
-- [x] SecurityConfig 통합 테스트 작성 (20개 테스트 케이스)
-  - [x] URL별 권한 검증, JWT 인증, CORS 테스트
-- [x] application-test.properties 설정 (H2 in-memory DB)
-- [x] SecurityConfig 수정: 인증 실패 시 401 반환
-- [x] 전체 테스트 실행 및 통과 (62/62 성공 ✅)
+**Phase 5: Service 계층 구현 (2025-12-29)**
+- [x] AuthService (회원가입, 로그인, 로그아웃)
+- [x] RefreshTokenService (Redis 기반)
+
+**Phase 6: Controller 계층 구현 (2025-12-29) - 일부**
+- [x] AuthController
+  - [x] POST /api/auth/signup - 회원가입
+  - [x] POST /api/auth/login - 로그인
+  - [x] POST /api/auth/logout - 로그아웃
+  - [x] GET /api/auth/health - 헬스체크
+- [x] Swagger API 문서화 (SpringDoc OpenAPI)
+
+**추가 설정 (2025-12-29)**
+- [x] RedisConfig - Redis 연결 설정
+- [x] SwaggerConfig - API 문서화
+- [x] build.gradle에 Redis, Swagger 의존성 추가
 
 ### 🎯 현재 위치
-**Phase 3.5 완료 (2025-11-26)** → **Phase 4 진행 준비 (OAuth2 소셜 로그인)**
+**Phase 5-6 진행 중 (2025-12-29)** → 인증 API 구현 완료, 추가 기능 구현 필요
 
 ### 📋 다음 단계
-1. **OAuth2 소셜 로그인 구현 (Phase 4) - 다음 단계**
-   - CustomOAuth2UserService 구현
-   - OAuth2SuccessHandler 구현
-   - OAuth2UserInfo 추상화
-   - Google OAuth2 설정
-   - Kakao OAuth2 설정
-   - application.properties에 OAuth2 설정 추가
+1. **토큰 갱신 API**
+   - POST /api/auth/refresh - Refresh Token으로 Access Token 재발급
+
+2. **UserController**
+   - GET /api/user/me - 내 정보 조회
+   - PUT /api/user/me - 내 정보 수정
+
+3. **OAuth2 소셜 로그인 (선택)**
+   - Google, Kakao 연동
 
 ---
 
@@ -1179,4 +1332,4 @@ Claude에게 다음과 같이 말하면 각 스킬이 자동으로 발동됩니�
 
 **작성자**: Claude Code
 **프로젝트 시작일**: 2025-11-24
-**마지막 업데이트**: 2025-11-26 (Phase 3.5 완료 - 테스트 코드 작성 및 검증)
+**마지막 업데이트**: 2025-12-29 (프로젝트 구조 리팩토링 + Phase 5-6 인증 API 구현)

@@ -1,0 +1,157 @@
+{
+    "components": {
+        "schemas": {
+            "LoginRequest": {
+                "properties": {
+                    "loginId": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "SignupRequest": {
+                "properties": {
+                    "language": {
+                        "type": "string"
+                    },
+                    "loginId": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string"
+                    },
+                    "subscribeInService": {
+                        "type": "boolean"
+                    },
+                    "userName": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            }
+        },
+        "securitySchemes": {
+            "JWT": {
+                "bearerFormat": "JWT",
+                "in": "header",
+                "name": "Authorization",
+                "scheme": "bearer",
+                "type": "http"
+            }
+        }
+    },
+    "info": {
+        "description": "회원가입/로그인 인증 API",
+        "title": "Admin API",
+        "version": "v1.0"
+    },
+    "openapi": "3.1.0",
+    "paths": {
+        "/api/auth/health": {
+            "get": {
+                "description": "서버 상태를 확인합니다.",
+                "operationId": "health",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "헬스 체크",
+                "tags": [
+                    "Auth"
+                ]
+            }
+        },
+        "/api/auth/login": {
+            "post": {
+                "description": "로그인 후 JWT 토큰을 발급합니다.",
+                "operationId": "login",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LoginRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "로그인",
+                "tags": [
+                    "Auth"
+                ]
+            }
+        },
+        "/api/auth/signup": {
+            "post": {
+                "description": "새로운 사용자를 등록하고 JWT 토큰을 발급합니다.",
+                "operationId": "signup",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SignupRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "회원가입",
+                "tags": [
+                    "Auth"
+                ]
+            }
+        }
+    },
+    "security": [
+        {
+            "JWT": []
+        }
+    ],
+    "servers": [
+        {
+            "description": "Generated server url",
+            "url": "http://localhost:8080"
+        }
+    ],
+    "tags": [
+        {
+            "description": "인증 API (회원가입, 로그인)",
+            "name": "Auth"
+        }
+    ]
+}
