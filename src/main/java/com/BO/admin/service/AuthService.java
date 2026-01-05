@@ -1,16 +1,20 @@
 package com.BO.admin.service;
 
+import java.util.Objects;
+
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.BO.admin.dto.auth.LoginRequest;
 import com.BO.admin.dto.auth.SignupRequest;
 import com.BO.admin.dto.auth.TokenResponse;
 import com.BO.admin.entity.User;
 import com.BO.admin.repository.UserRepository;
 import com.BO.admin.security.jwt.JwtTokenProvider;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 인증 서비스
@@ -55,7 +59,7 @@ public class AuthService {
                 .subscribeInService(subscribeValue)
                 .build();
 
-        User savedUser = userRepository.save(user);
+        User savedUser = Objects.requireNonNull(userRepository.save(user));
         log.info("회원가입 성공: loginId={}, userSeq={}", savedUser.getLoginId(), savedUser.getUserSeq());
 
         return savedUser;
@@ -78,26 +82,27 @@ public class AuthService {
 
         log.info("로그인 성공: loginId={}, userSeq={}", user.getLoginId(), user.getUserSeq());
 
-        // 3. JWT 토큰 발급
+        // 3. Access 토큰 발급
         String accessToken = jwtTokenProvider.createAccessToken(
                 user.getLoginId(),
                 "USER",
                 "USER"
         );
 
+        // 4. Refresh 토큰 발급
         String refreshToken = jwtTokenProvider.createRefreshToken(
                 user.getLoginId(),
                 "USER"
         );
 
-        // 4. Access Token을 User 테이블에 저장
+        // 5. Access Token을 User 테이블에 저장
         user.setAccessToken(accessToken);
         userRepository.save(user);
 
-        // 5. Refresh Token을 Redis에 저장 (기존 토큰 덮어씀)
+        // 6. Refresh Token을 Redis에 저장 (기존 토큰 덮어씀)
         refreshTokenService.saveRefreshToken(user.getLoginId(), refreshToken);
 
-        // 6. 응답 반환
+        // 7. 응답 반환
         return TokenResponse.of(
                 accessToken,
                 refreshToken,

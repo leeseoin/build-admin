@@ -2,20 +2,19 @@
 
 > Spring Boot 회원가입/로그인 시스템 개발 프로젝트
 
-**마지막 업데이트**: 2025-12-29
-**현재 진행 상황**: Phase 5-6 진행 중 - 프로젝트 구조 리팩토링 및 인증 API 구현
+**마지막 업데이트**: 2026-01-05
+**현재 진행 상황**: JWT 토큰 관리 방식 검토 및 개선 진행 중
 
 ---
 
 ## 📋 프로젝트 개요
 
-- **프로젝트명**: Admin Backend - 인증 시스템
-- **기술 스택**: Spring Boot 3.5.7, Java 21, MySQL, JWT, OAuth2
+- **프로젝트명**: Backend - 인증 시스템
+- **기술 스택**: Spring Boot 3.5.7, Java 21, MySQL, Redis, JWT
 - **주요 기능**:
-  - 일반 로그인 (이메일/비밀번호)
-  - 소셜 로그인 (Google, Kakao)
+  - 일반 로그인 (loginId/비밀번호)
   - JWT 기반 인증 (Access Token + Refresh Token)
-  - 사용자/관리자 권한 분리
+  - Redis 기반 토큰 관리
 
 ---
 
@@ -46,20 +45,10 @@
    - userType ENUM으로 사용자/관리자 구분
 
 2. **Entity 클래스 생성 (spring-entity-generator 스킬 사용)**
-   - User.java (tb_user 테이블 매핑)
-   - Admin.java (tb_adminAccount 테이블 매핑)
-   - RefreshToken.java (tb_refresh_token 테이블 매핑)
+   - User.java (TB_USER 테이블 매핑)
 
-3. **Enum 타입 생성**
-   - RegisteredPath.java (EMAIL, SOCIAL)
-   - WithdrawalType.java (SELF, SYSTEM)
-   - UserType.java (USER, ADMIN)
-   - AdminLevel.java (SUPER_ADMIN, ADMIN, MANAGER)
-
-4. **Repository 인터페이스 생성**
+3. **Repository 인터페이스 생성**
    - UserRepository.java
-   - AdminRepository.java
-   - RefreshTokenRepository.java
 
 #### ✅ Phase 2: JWT 인증 구현 완료
 
@@ -337,7 +326,32 @@ DB 대신 Redis를 사용하여 Refresh Token을 관리합니다.
    - Swagger UI: `http://localhost:8080/swagger-ui/index.html`
    - OpenAPI JSON: `http://localhost:8080/v3/api-docs`
 
-#### 📁 현재 프로젝트 구조 (2025-12-29 기준)
+### 2026-01-05
+
+#### 🔍 JWT 토큰 관리 방식 검토
+
+1. **현재 구현 분석**
+   - Access Token: MySQL DB (tb_user.access_token)에 저장
+   - Refresh Token: Redis에 저장 (TTL 적용)
+   - 문제점: Access Token 만료 후에도 로그아웃 가능 (parseClaims에서 ExpiredJwtException 처리)
+
+2. **JWT 토큰 관리 방식 논의**
+   - **Stateless 방식**: 토큰을 서버에 저장하지 않음 (일반적인 JWT 방식)
+   - **Stateful 방식**: Access Token + Refresh Token 모두 Redis에 저장
+   - Access Token을 MySQL 대신 Redis로 이동 검토 중
+
+3. **다음 작업 예정**
+   - `/api/auth/refresh` API 구현 (Refresh Token으로 Access Token 재발급)
+   - Access Token 저장소를 MySQL → Redis로 변경 검토
+   - 토큰 즉시 무효화 기능 구현
+
+4. **코드 정리**
+   - `@NonNull` 어노테이션 추가 (IDE 경고 해결)
+     - JwtAuthenticationFilter: `@NonNull` 파라미터 추가
+     - RedisConfig: 기본값 설정
+     - AuthService: `Objects.requireNonNull()` 적용
+
+#### 📁 현재 프로젝트 구조 (2026-01-05 기준)
 
 ```
 src/main/java/com/BO/admin/
@@ -395,9 +409,7 @@ src/main/java/com/BO/admin/
 |---------|------------|------|
 | `/api/auth/**` | None | 회원가입, 로그인 |
 | `/api/public/**` | None | 공개 API |
-| `/api/user/**` | USER, ADMIN | 사용자 기능 |
-| `/api/admin/**` | ADMIN | 관리자 기능 |
-| `/api/super-admin/**` | SUPER_ADMIN | 최고 관리자 기능 |
+| `/api/user/**` | USER | 사용자 기능 |
 | `/error`, `/favicon.ico` | None | 시스템 |
 | 나머지 모든 URL | Authenticated | 인증 필요 |
 
@@ -428,8 +440,8 @@ src/main/java/com/BO/admin/
 ```json
 {
   "sub": "loginId",
-  "role": "USER | ADMIN | SUPER_ADMIN | MANAGER",
-  "userType": "USER | ADMIN",
+  "role": "USER",
+  "userType": "USER",
   "type": "access | refresh",
   "iat": 1234567890,
   "exp": 1234567890
@@ -458,7 +470,7 @@ src/main/java/com/BO/admin/
 - `refreshToken` (String) - Refresh Token
 - `tokenType` (String) - "Bearer" 고정
 - `expiresIn` (Long) - Access Token 만료 시간 (ms)
-- `userType` (String) - 사용자 타입 (USER/ADMIN)
+- `userType` (String) - 사용자 타입 (USER)
 
 **사용 예시**:
 ```java
@@ -501,51 +513,6 @@ TokenResponse response = TokenResponse.of(
 - `isWithdrawn()` - 탈퇴한 사용자 여부
 - `isDeactivated()` - 비활성화된 사용자 여부
 
-### Admin Entity (tb_adminAccount)
-
-**테이블**: `tb_adminAccount`
-**PK**: `adminId` (INT UNSIGNED)
-
-**주요 필드**:
-- `loginId` (VARCHAR) - 관리자 로그인 ID, NOT NULL
-- `password` (VARCHAR) - 암호화된 비밀번호, NOT NULL
-- `name` (VARCHAR) - 관리자 이름, NOT NULL
-- `level` (ENUM) - 권한 레벨 (SUPER_ADMIN/ADMIN/MANAGER), DEFAULT ADMIN
-- `memo` (VARCHAR) - 메모
-- `profileImage` (BIGINT UNSIGNED) - 프로필 이미지 ID (tb_file 참조)
-
-**타임스탬프**:
-- `createdAt` (DATETIME) - 생성일시, @PrePersist로 자동 설정
-- `createdBy` (INT UNSIGNED) - 생성자 ID
-- `deletedAt` (DATETIME) - 삭제일시
-- `deletedBy` (INT UNSIGNED) - 삭제자 ID
-
-**비즈니스 메서드**:
-- `isDeleted()` - 삭제된 관리자 여부
-- `isSuperAdmin()` - 최고 관리자 여부
-
-### RefreshToken Entity (tb_refresh_token)
-
-**테이블**: `tb_refresh_token`
-**PK**: `id` (BIGINT UNSIGNED)
-
-**주요 필드**:
-- `token` (VARCHAR) - Refresh Token 문자열, NOT NULL, UNIQUE, 500자
-- `userId` (BIGINT UNSIGNED) - 일반 사용자 ID (NULL 가능)
-- `adminId` (INT UNSIGNED) - 관리자 ID (NULL 가능)
-- `userType` (ENUM) - 사용자 유형 (USER/ADMIN), NOT NULL
-- `expiresAt` (DATETIME) - 만료 일시, NOT NULL
-
-**타임스탬프**:
-- `createdAt` (DATETIME) - 생성일시, @PrePersist로 자동 설정
-- `lastUsedAt` (DATETIME) - 마지막 사용 일시
-
-**비즈니스 메서드**:
-- `isExpired()` - 토큰 만료 여부
-- `isUserToken()` - 일반 사용자 토큰 여부
-- `isAdminToken()` - 관리자 토큰 여부
-- `updateLastUsedAt()` - 마지막 사용 시간 업데이트
-
 ---
 
 ## 🛠 생성된 Skills 상세
@@ -568,23 +535,15 @@ TokenResponse response = TokenResponse.of(
 
 **자동 발동 키워드**:
 - "User 엔티티 만들어줘"
-- "OAuth 사용자 테이블 생성해줘"
-- "관리자 엔티티 필요해"
 - "회원 Entity 만들어줘"
 
 **생성되는 파일 예시**:
 ```
 src/main/java/com/BO/admin/
 ├── entity/
-│   ├── User.java              # 사용자 엔티티
-│   ├── UserRole.java          # 역할 Enum
-│   ├── Admin.java             # 관리자 엔티티
-│   ├── OAuthUser.java         # OAuth 사용자 엔티티
-│   └── OAuthProvider.java     # OAuth 제공자 Enum
+│   └── User.java              # 사용자 엔티티
 └── repository/
-    ├── UserRepository.java
-    ├── AdminRepository.java
-    └── OAuthUserRepository.java
+    └── UserRepository.java
 ```
 
 **코드 생성 규칙**:
@@ -707,8 +666,7 @@ src/main/java/com/BO/admin/
 **URL별 권한 설정**:
 ```
 /api/auth/**      → 인증 불필요 (회원가입, 로그인)
-/api/admin/**     → ADMIN 권한 필요
-/api/user/**      → USER 또는 ADMIN 권한 필요
+/api/user/**      → USER 권한 필요
 그 외 모든 URL     → 인증 필요
 ```
 
@@ -773,14 +731,8 @@ cat .claude/skills/spring-security-config/SKILL.md
 - [x] CLAUDE.md 문서화
 
 ### ✅ Phase 1: Entity 및 Repository 생성 (완료)
-- [x] tb_refresh_token 테이블 SQL 추가
-- [x] User Entity 생성 (tb_user 기반)
-- [x] Admin Entity 생성 (tb_adminAccount 기반)
-- [x] RefreshToken Entity 생성 (tb_refresh_token 기반)
-- [x] Enum 타입 생성 (RegisteredPath, WithdrawalType, UserType, AdminLevel)
+- [x] User Entity 생성 (TB_USER 기반)
 - [x] UserRepository 생성
-- [x] AdminRepository 생성
-- [x] RefreshTokenRepository 생성
 
 ### ✅ Phase 2: JWT 인증 구현 (완료)
 - [x] JwtTokenProvider 생성 (jwt-token-helper 스킬 사용)
@@ -794,7 +746,7 @@ cat .claude/skills/spring-security-config/SKILL.md
 - [x] SecurityFilterChain 설정 (CSRF 비활성화, 세션 STATELESS)
 - [x] CORS 정책 설정 (프론트엔드 Origin 허용)
 - [x] PasswordEncoder Bean 등록 (BCrypt)
-- [x] URL별 권한 설정 (permitAll, hasRole, hasAnyRole)
+- [x] URL별 권한 설정 (permitAll, hasRole)
 - [x] JWT 필터 연동 (UsernamePasswordAuthenticationFilter 이전)
 
 ### ✅ Phase 3.5: 테스트 코드 작성 및 검증 (완료) - 2025-11-26
@@ -803,10 +755,8 @@ cat .claude/skills/spring-security-config/SKILL.md
   - [x] 토큰에서 정보 추출 (loginId, role, userType)
   - [x] 토큰 만료 처리 및 확인
   - [x] 다양한 사용자 타입 테스트
-- [x] Repository 통합 테스트 작성 (19개 테스트)
-  - [x] UserRepository: 일반/소셜 사용자, 탈퇴 처리
-  - [x] AdminRepository: 관리자 레벨별 저장/조회, 삭제 처리
-  - [x] RefreshTokenRepository: 토큰 저장/조회/삭제, 만료 처리
+- [x] Repository 통합 테스트 작성
+  - [x] UserRepository: 사용자 저장/조회
 - [x] SecurityConfig 통합 테스트 작성 (20개 테스트)
   - [x] URL별 권한 검증
   - [x] JWT 인증 필터 동작 확인
@@ -862,30 +812,10 @@ cat .claude/skills/spring-security-config/SKILL.md
      - successHandler에 OAuth2SuccessHandler 연결
 
 6. **application.properties 설정**
-   - [ ] Google OAuth2 설정 추가
-     ```properties
-     spring.security.oauth2.client.registration.google.client-id=your-google-client-id
-     spring.security.oauth2.client.registration.google.client-secret=your-google-client-secret
-     spring.security.oauth2.client.registration.google.scope=profile,email
-     ```
-   - [ ] Kakao OAuth2 설정 추가
-     ```properties
-     spring.security.oauth2.client.registration.kakao.client-id=your-kakao-client-id
-     spring.security.oauth2.client.registration.kakao.client-secret=your-kakao-client-secret
-     spring.security.oauth2.client.registration.kakao.redirect-uri={baseUrl}/login/oauth2/code/kakao
-     spring.security.oauth2.client.registration.kakao.authorization-grant-type=authorization_code
-     spring.security.oauth2.client.registration.kakao.scope=profile_nickname,account_email
-     spring.security.oauth2.client.registration.kakao.client-name=Kakao
-
-     spring.security.oauth2.client.provider.kakao.authorization-uri=https://kauth.kakao.com/oauth/authorize
-     spring.security.oauth2.client.provider.kakao.token-uri=https://kauth.kakao.com/oauth/token
-     spring.security.oauth2.client.provider.kakao.user-info-uri=https://kapi.kakao.com/v2/user/me
-     spring.security.oauth2.client.provider.kakao.user-name-attribute=id
-     ```
-   - [ ] OAuth2 리다이렉트 URI 설정
-     ```properties
-     app.oauth2.redirect-uri=http://localhost:3000/auth/callback
-     ```
+   - 1. mysql 설정
+   - 2. jpa 설정
+   - 3. redis 설정
+   - 4. jwt 설정
 
 7. **build.gradle 의존성 확인**
    - [ ] OAuth2 Client 의존성이 있는지 확인
@@ -911,15 +841,14 @@ src/main/java/com/BO/admin/security/oauth/
 - 소셜 로그인 사용자는 User 테이블에 저장 (socialLoginYn=true, registeredPath=SOCIAL)
 
 ### ⏳ Phase 5: Service 계층 구현
-- [ ] UserService 구현
-- [ ] AdminService 구현
-- [ ] AuthService 구현 (회원가입, 로그인)
-- [ ] TokenService 구현 (토큰 갱신)
+- [x] AuthService 구현 (회원가입, 로그인, 로그아웃)
+- [x] RefreshTokenService 구현 (Redis 기반)
+- [x] UserService 구현
+- [x] TokenService 구현 (토큰 갱신)
 
 ### ⏳ Phase 6: Controller 계층 구현
-- [ ] AuthController (회원가입, 로그인, 로그아웃)
+- [x] AuthController (회원가입, 로그인, 로그아웃)
 - [ ] UserController (사용자 정보 조회/수정)
-- [ ] AdminController (관리자 기능)
 - [ ] TokenController (토큰 갱신)
 
 ### ⏳ Phase 7: 테스트 및 배포
@@ -1173,6 +1102,49 @@ admin/
 1. **토큰 갱신 API 구현**
    - `POST /api/auth/refresh` - Refresh Token으로 Access Token 재발급
    - Redis에서 Refresh Token 검증
+   1.1 **구체적인 방안**
+      ------
+      방식 1: Stateless (일반적인 JWT 방식)
+
+      토큰을 서버에 저장하지 않음
+
+      | 항목          | 설명                                            |
+      |---------------|-------------------------------------------------|
+      | Access Token  | 저장 안 함 (토큰 자체로 검증)                   |
+      | Refresh Token | Redis에 저장                                    |
+      | 검증 방식     | 토큰 서명 + 만료시간만 확인                     |
+      | 장점          | 빠름, DB/Redis 조회 없음, 확장성 좋음           |
+      | 단점          | 로그아웃해도 Access Token 만료 전까지 사용 가능 |
+
+      ---
+      방식 2: Stateful (Redis에 둘 다 저장)
+
+      Access Token + Refresh Token 둘 다 Redis에 저장
+
+      | 항목          | 설명                                |
+      |---------------|-------------------------------------|
+      | Access Token  | Redis에 저장 (TTL: 1시간)           |
+      | Refresh Token | Redis에 저장 (TTL: 7일)             |
+      | 검증 방식     | 토큰 서명 + Redis에 존재하는지 확인 |
+      | 장점          | 로그아웃 시 즉시 무효화 가능        |
+      | 단점          | 매 요청마다 Redis 조회 필요         |
+
+      ---
+      현재 구조 vs 개선안
+
+      현재: Access Token → MySQL (느림, 비효율)
+            Refresh Token → Redis
+
+      개선안 1 (Stateless): Access Token → 저장 안 함
+                              Refresh Token → Redis
+
+      개선안 2 (Stateful):  Access Token → Redis
+                              Refresh Token → Redis
+                              + MySQL에서 access_token 컬럼 제거
+
+      ------
+         - Stateless → 일반적인 JWT 방식, 성능 좋음
+         - Stateful → 보안 강화 (즉시 무효화), Redis 의존
 
 2. **UserController 구현**
    - `GET /api/user/me` - 내 정보 조회
@@ -1294,18 +1266,19 @@ SHOW TABLES;
 - [x] build.gradle에 Redis, Swagger 의존성 추가
 
 ### 🎯 현재 위치
-**Phase 5-6 진행 중 (2025-12-29)** → 인증 API 구현 완료, 추가 기능 구현 필요
+**Phase 5-6 진행 중 (2026-01-05)** → 인증 API 구현 완료, JWT 토큰 관리 방식 개선 필요
 
 ### 📋 다음 단계
 1. **토큰 갱신 API**
    - POST /api/auth/refresh - Refresh Token으로 Access Token 재발급
 
-2. **UserController**
+2. **Access Token 저장소 변경 검토**
+   - MySQL → Redis로 이동
+   - 또는 Stateless 방식으로 전환 (서버에 저장 안 함)
+
+3. **UserController**
    - GET /api/user/me - 내 정보 조회
    - PUT /api/user/me - 내 정보 수정
-
-3. **OAuth2 소셜 로그인 (선택)**
-   - Google, Kakao 연동
 
 ---
 
@@ -1332,4 +1305,4 @@ Claude에게 다음과 같이 말하면 각 스킬이 자동으로 발동됩니�
 
 **작성자**: Claude Code
 **프로젝트 시작일**: 2025-11-24
-**마지막 업데이트**: 2025-12-29 (프로젝트 구조 리팩토링 + Phase 5-6 인증 API 구현)
+**마지막 업데이트**: 2026-01-05 (JWT 토큰 관리 방식 검토, Admin 관련 내용 제거)

@@ -77,7 +77,7 @@ public class AuthController {
         }
     }
 
-    @Operation(summary = "로그아웃", description = "로그아웃하고 Refresh Token을 삭제합니다.")
+    @Operation(summary = "로그아웃", description = "로그아웃시, Redis에 발급된 Refresh Token을 삭제합니다.")
     @PostMapping("/logout")
     public ResponseEntity<?> logout(@RequestHeader("Authorization") String authHeader) {
         try {

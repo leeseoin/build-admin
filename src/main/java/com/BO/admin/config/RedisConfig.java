@@ -15,9 +15,11 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @Configuration
 public class RedisConfig {
 
+    // Redis host 설정
     @Value("${spring.data.redis.host}")
-    private String localhost;
+    private String localhost = "localhost";
 
+    // 현재 Redis 도커로 3307:3306으로 작동 중 → 포트 번호 관련 설정은 application.properties에 설정되어 있음.
     @Value("${spring.data.redis.port}")
     private int port;
 
@@ -30,15 +32,19 @@ public class RedisConfig {
 
     @Bean
     public RedisTemplate<String, String> redisTemplate(RedisConnectionFactory connectionFactory) {
-        RedisTemplate<String, String> template = new RedisTemplate<>();
-        template.setConnectionFactory(connectionFactory);
+        RedisTemplate<String, String> redisTemplate = new RedisTemplate<>();
 
-        // Key, Value 모두 String으로 직렬화
-        template.setKeySerializer(new StringRedisSerializer());
-        template.setValueSerializer(new StringRedisSerializer());
-        template.setHashKeySerializer(new StringRedisSerializer());
-        template.setHashValueSerializer(new StringRedisSerializer());
+        // Redis 연결 수행
+        redisTemplate.setConnectionFactory(connectionFactory);
 
-        return template;
+        // Key-Value 형태의 String으로 직렬화
+        redisTemplate.setKeySerializer(new StringRedisSerializer());
+        redisTemplate.setValueSerializer(new StringRedisSerializer());
+
+        // Hash Key-Value 형태의 String으로 직렬화
+        redisTemplate.setHashKeySerializer(new StringRedisSerializer());
+        redisTemplate.setHashValueSerializer(new StringRedisSerializer());
+
+        return redisTemplate;
     }
 }
